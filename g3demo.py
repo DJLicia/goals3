@@ -87,8 +87,8 @@ def pull_forward(driver):
 
 # -1 to 1
 SIDE_RAW_DICT = {(0, 0, 0): 0.0, (1, 1, 1): 0.0, (0, 1, 0): 0.0, 
-(0, 1, 1): -0.3, (0, 0, 1): -0.7,
-(1, 1, 0): 0.3, (1, 0, 0): 0.7, (1, 0, 1): 0.0}
+(0, 1, 1): -0.5, (0, 0, 1): -0.8,
+(1, 1, 0): 0.5, (1, 0, 0): 0.8 , (1, 0, 1): 0.0}
 
 def new_street_turn(driver, sensor, direction):
     t_const = 0.5
@@ -121,12 +121,13 @@ def new_street_turn(driver, sensor, direction):
 def line_follower(driver, sensor):
     # black = 1
     # white/none = 0
-    t_const = 0.5
+    t_const = 0.2
     direction = 2
-
+    SIDE_STATE = 0
     # Intersection detection
     intr_level = 0.0
     intr_raw = 0.0
+    t_intr_end_const = 0.1
 
     # Side Detection
     side_lvl = 0.0
@@ -151,62 +152,61 @@ def line_follower(driver, sensor):
         else:
             intr_raw = 0.0
         
-        intr_level = intr_level + (dt / t_const) * (intr_raw - intr_level)
+        intr_level = intr_level + (dt / t_intr_end_const) * (intr_raw - intr_level)
         # check exit condition for intersection threshold
-        if intr_level >= 0.8:
+        if intr_level >= 0.5:
             driver.stop()
-            print("At Intersection")
-            direction = input("Hit 1 for left, 2 for right") 
-            return direction
-        # brings us out of line following 
-
-    
+            break # brings us out of line following into main
+        
         # side filter
         # get raw from dictionary 
         side_raw = SIDE_RAW_DICT.get(line_reading)
-        print(side_raw)
         side_lvl = side_lvl + (dt / t_side_const) * (side_raw - side_lvl)
 
-         # check exit condition for off line threshold
-        if line_reading == ((0, 0, 0)):
+        # check exit condition for off line threshold
+        if SIDE_STATE == 0 and line_reading == ((0, 0, 0)):
             end_raw = 1.0
         else:
             end_raw = 0.0
         
         # End Detection
-        end_lvl = end_lvl + (dt / t_const) * (end_raw - end_lvl)
+        end_lvl = end_lvl + (dt / t_intr_end_const) * (end_raw - end_lvl)
+        
         if end_lvl >= 0.8:
             driver.stop()
-            if side_lvl >= 0.2 or side_lvl <= -0.2:
-                #go back to line following
-                continue
-            print("Off the road")
-            direction = input("Hit 1 for left, 2 for right") 
-            return direction
+            # if side_lvl >= 0.2 or side_lvl <= -0.2:
+            #     #go back to line following
+            #     continue
+            break # want it to leave line follower function
         
-        if side_lvl >= 0.6:
-            driver.drive("l", "turn")  # very off right
-        elif side_lvl >= 0.2 and side_lvl < 0.6:
-            driver.drive("l", "steer") # off right
-        elif side_lvl >= -0.2 and side_lvl < 0.2:
-            driver.drive("s", "straight") # hopefully centered
-        elif side_lvl < -0.2 and side_lvl >= -0.6:
-            driver.drive("r", "steer") # off left
-        elif side_lvl < -0.6: 
-            driver.drive("r", "turn")  # very off left
+        print("Side state: ", SIDE_STATE)
+        if side_lvl >= 0.8: # on the right
+            SIDE_STATE = 1
+        elif side_lvl >= -0.1 and side_lvl < 0.1: # CENTERED
+            SIDE_STATE = 0
+        elif side_lvl <= -0.8:
+            SIDE_STATE = -1
 
-        # if line_reading == (0, 1, 0): # go straight
-        #     driver.drive("s", "straight")
-        # elif line_reading == (0, 1, 1): # steer right
-        #     driver.drive("r", "steer")
-        # elif line_reading == (0, 0, 1): # steer right
-        #     driver.drive("r", "turn")
-        # elif line_reading == (0, 0, 0): # hook (hopefully)
-        #     driver.drive("r", "spin")
-        # elif line_reading == (1, 1, 0): # veer left
-        #     driver.drive("l", "steer")
-        # elif line_reading == (1, 0, 0): # steer left
-        #     driver.drive("l", "turn")
+        if line_reading == (0, 1, 0): # go straight
+            driver.drive("s", "straight")
+        elif line_reading == (0, 1, 1): # steer right
+            driver.drive("r", "steer")
+        elif line_reading == (0, 0, 1): # steer right
+            driver.drive("r", "turn")
+        elif line_reading == (0, 0, 0): # Off the line
+            if SIDE_STATE == -1:
+                #end_raw = 0
+                driver.drive("r", "hook")
+            elif SIDE_STATE == 0:
+                #end_raw = 1
+                driver.drive("s", "straight")
+            elif SIDE_STATE == 1:
+                #end_raw = 0
+                driver.driver("l", "hook")
+        elif line_reading == (1, 1, 0): # veer left
+            driver.drive("l", "steer")
+        elif line_reading == (1, 0, 0): # steer left
+            driver.drive("l", "turn")
 
 #
 #   Main
@@ -243,8 +243,11 @@ if __name__ == "__main__":
     try:
         ''' Goals 3: dealing with angled intersections through filters ''' 
         while(True):
-            direction = line_follower(driver, sensor)
+            line_follower(driver, sensor)
             
+            print("Out of line follower")
+            direction = input("Hit 1 for left, 2 for right ") 
+
             pull_forward(driver)
 
             new_street_turn(driver, sensor, direction)
